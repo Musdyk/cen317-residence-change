@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Başvurularım | İkametgâh Adres Değişikliği</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header></header>
+
+  <main>
+    <div id="mesaj" class="mesaj"></div>
+
+    <div class="kart" id="detay" hidden></div>
+
+    <div class="kart">
+      <h2>Başvurularım</h2>
+      <table>
+        <thead><tr><th>Takip No</th><th>Yeni Adres</th><th>Başvuru Tarihi</th><th>Durum</th><th></th></tr></thead>
+        <tbody id="liste"><tr><td colspan="5" class="kucuk">Yükleniyor…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    sayfaHazirla({ rol: 'VATANDAS' });
+
+    const mesaj = document.getElementById('mesaj');
+    const detay = document.getElementById('detay');
+    const liste = document.getElementById('liste');
+
+    function detayCiz(b) {
+      detay.hidden = false;
+      detay.innerHTML = `
+        <h2>Başvuru ${kacis(b.takipNo)} ${durumRozeti(b.durum)}</h2>
+        <div class="izgara">
+          <div><p class="kucuk">Önceki adres</p><p>${kacis(b.eskiAdres?.metin || 'Yok (ilk kayıt)')}</p></div>
+          <div><p class="kucuk">Yeni adres</p><p>${kacis(b.yeniAdres.metin)}<br><span class="kucuk">Adres kodu ${b.yeniAdres.adresKodu}</span></p></div>
+          <div><p class="kucuk">Taşınma tarihi</p><p>${tarih(b.tasinmaTarihi)}</p></div>
+        </div>
+        ${b.redGerekcesi ? `<div class="mesaj hata goster">Red gerekçesi: ${kacis(b.redGerekcesi)}</div>` : ''}
+        <h3 style="font-size:15px">Süreç</h3>
+        <ul class="zaman">
+          ${b.gecmis.map((g) => `
+            <li>${durumRozeti(g.yeniDurum)} <span class="kucuk">${tarihSaat(g.tarih)}</span>
+              ${g.aciklama ? `<br>${kacis(g.aciklama)}` : ''}
+              ${g.degistiren?.rol === 'ADMIN' ? `<br><span class="kucuk">İşlemi yapan: ${kacis(g.degistiren.ad)}</span>` : ''}
+            </li>`).join('')}
+        </ul>
+        <div class="satir">
+          ${b.belge ? `<button class="yesil" id="pdfBtn">Belgeyi Görüntüle (PDF)</button>
+            <span class="kucuk">Belge no: ${kacis(b.belge.belgeNo)}${b.belge.gecerli ? '' : ' (artık geçerli değil)'}</span>` : ''}
+          ${b.durum === 'BEKLEMEDE' ? '<button class="ikincil" id="iptalBtn">Başvuruyu İptal Et</button>' : ''}
+        </div>`;
+
+      document.getElementById('pdfBtn')?.addEventListener('click', () => pdfAc(b.belge.belgeNo));
+      document.getElementById('iptalBtn')?.addEventListener('click', async () => {
+        if (!confirm('Başvuruyu iptal etmek istediğinize emin misiniz?')) return;
+        try {
+          detayCiz(await api(`/basvurular/${encodeURIComponent(b.takipNo)}/iptal`, { method: 'POST' }));
+          listeYukle();
+        } catch (err) { mesajGoster(mesaj, err.message); }
+      });
+    }
+
+    async function detayGoster(takipNo) {
+      try {
+        detayCiz(await api(`/basvurular/${encodeURIComponent(takipNo)}`));
+        history.replaceState(null, '', `?no=${encodeURIComponent(takipNo)}`);
+        detay.scrollIntoView({ behavior: 'smooth' });
+      } catch (err) { mesajGoster(mesaj, err.message); }
+    }
+
+    async function listeYukle() {
+      try {
+        const kayitlar = await api('/basvurular/benim');
+        liste.innerHTML = kayitlar.length
+          ? kayitlar.map((b) => `
+              <tr>
+                <td>${kacis(b.takipNo)}</td>
+                <td>${kacis(b.yeniAdres.metin)}</td>
+                <td>${tarihSaat(b.olusturma)}</td>
+                <td>${durumRozeti(b.durum)}</td>
+                <td><button class="ikincil" data-no="${kacis(b.takipNo)}">Detay</button></td>
+              </tr>`).join('')
+          : '<tr><td colspan="5" class="kucuk">Henüz başvurunuz yok. <a href="application.html">Yeni başvuru yapın.</a></td></tr>';
+      } catch (err) { mesajGoster(mesaj, err.message); }
+    }
+
+    liste.addEventListener('click', (e) => {
+      if (e.target.dataset.no) detayGoster(e.target.dataset.no);
+    });
+
+    listeYukle();
+    const no = new URLSearchParams(location.search).get('no');
+    if (no) detayGoster(no);
+  </script>
+</body>
+</html>

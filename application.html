@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yeni Başvuru | İkametgâh Adres Değişikliği</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header></header>
+
+  <main>
+    <div class="kart">
+      <h2>Mevcut Adresiniz</h2>
+      <p id="mevcutAdres" class="kucuk">Yükleniyor…</p>
+    </div>
+
+    <div class="kart">
+      <h2>Yeni Adres Bildirimi</h2>
+      <div id="mesaj" class="mesaj"></div>
+
+      <form id="form">
+        <div class="izgara">
+          <div><label for="il">İl</label><select id="il"></select></div>
+          <div><label for="ilce">İlçe</label><select id="ilce"></select></div>
+          <div><label for="mahalle">Mahalle</label><select id="mahalle"></select></div>
+          <div><label for="sokak">Cadde / Sokak</label><select id="sokak"></select></div>
+          <div><label for="bina">Bina</label><select id="bina"></select></div>
+          <div><label for="bolum">Daire</label><select id="bolum"></select></div>
+        </div>
+
+        <div id="harita"></div>
+        <p class="kucuk">Sokak seçince binalar haritada görünür. Bir bina işaretçisine tıklayarak da seçebilirsiniz.
+          Kırmızı nokta konumunuzdur; haritaya tıklayarak yerini değiştirebilirsiniz.</p>
+
+        <div id="dogrulama" class="mesaj"></div>
+
+        <label for="tasinmaTarihi">Taşınma Tarihi</label>
+        <input id="tasinmaTarihi" type="date" required style="max-width:220px">
+
+        <div class="satir"><button type="submit" id="gonderBtn" disabled>Başvuruyu Gönder</button></div>
+      </form>
+    </div>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/addresses.js"></script>
+  <script>
+    sayfaHazirla({ rol: 'VATANDAS' });
+
+    const mesaj = document.getElementById('mesaj');
+    const dogrulama = document.getElementById('dogrulama');
+    const gonderBtn = document.getElementById('gonderBtn');
+    const tarihAlani = document.getElementById('tasinmaTarihi');
+
+    // Taşınma tarihi: bugün ile 30 gün öncesi arasında olabilir.
+    const bugun = new Date();
+    const yerel = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    tarihAlani.max = yerel(bugun);
+    tarihAlani.min = yerel(new Date(bugun.getTime() - 30 * 864e5));
+    tarihAlani.value = tarihAlani.max;
+
+    api('/auth/ben').then((k) => {
+      document.getElementById('mevcutAdres').textContent = k.mevcutAdres
+        ? `${k.mevcutAdres.metin} (adres kodu ${k.mevcutAdres.adresKodu})`
+        : 'Kayıtlı bir adresiniz yok. Bu başvuru ilk adres kaydınız olacak.';
+    });
+
+    // Daire seçildiğinde veya işaret oynatıldığında adres anında doğrulanır.
+    let sonIstek = 0;
+    const secici = adresSecici({
+      async onDegisim() {
+        const s = secici.secim();
+        gonderBtn.disabled = true;
+        if (!s) return mesajGizle(dogrulama);
+        const no = ++sonIstek;
+        const q = new URLSearchParams({ adresKodu: s.adresKodu });
+        if (s.enlem != null) { q.set('enlem', s.enlem); q.set('boylam', s.boylam); }
+        try {
+          const r = await api(`/adres/dogrula?${q}`);
+          if (no !== sonIstek) return;
+          mesajGoster(dogrulama, `✓ Adres doğrulandı: ${r.adres.metin}. Adres kodu ${r.adres.adresKodu}` +
+            (r.mesafeMetre != null ? `, işaret binaya ${r.mesafeMetre} m uzakta.` : '.'), 'basari');
+          gonderBtn.disabled = false;
+        } catch (err) {
+          if (no === sonIstek) mesajGoster(dogrulama, err.message);
+        }
+      },
+    });
+
+    document.getElementById('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const s = secici.secim();
+      if (!s) return;
+      gonderBtn.disabled = true;
+      try {
+        const b = await api('/basvurular', { method: 'POST', govde: { ...s, tasinmaTarihi: tarihAlani.value } });
+        location.href = `tracking.html?no=${encodeURIComponent(b.takipNo)}`;
+      } catch (err) {
+        mesajGoster(mesaj, err.message);
+        gonderBtn.disabled = false;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    };
+  </script>
+</body>
+</html>

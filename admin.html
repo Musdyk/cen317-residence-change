@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yönetim Paneli | İkametgâh Adres Değişikliği</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header></header>
+
+  <main>
+    <div class="sayaclar kart" id="sayaclar" style="border:0;background:none;padding:0"></div>
+    <div id="mesaj" class="mesaj"></div>
+
+    <div class="kart">
+      <h2>Başvurular</h2>
+      <div class="izgara">
+        <div>
+          <label for="durumFiltre">Durum</label>
+          <select id="durumFiltre">
+            <option value="">Tümü</option>
+            <option value="BEKLEMEDE" selected>Beklemede</option>
+            <option value="INCELEMEDE">İncelemede</option>
+            <option value="ONAYLANDI">Onaylandı</option>
+            <option value="REDDEDILDI">Reddedildi</option>
+            <option value="IPTAL">İptal Edildi</option>
+          </select>
+        </div>
+        <div>
+          <label for="ara">Ara (takip no, TC, soyad)</label>
+          <input id="ara" type="search">
+        </div>
+      </div>
+
+      <table style="margin-top:16px">
+        <thead><tr><th>Takip No</th><th>Başvuran</th><th>Eski → Yeni Adres</th><th>Taşınma</th><th>Durum</th><th>İşlem</th></tr></thead>
+        <tbody id="liste"></tbody>
+      </table>
+      <div class="satir">
+        <button class="ikincil" id="onceki">‹ Önceki</button>
+        <span id="sayfaBilgi" class="kucuk"></span>
+        <button class="ikincil" id="sonraki">Sonraki ›</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    sayfaHazirla({ rol: 'ADMIN' });
+
+    const mesaj = document.getElementById('mesaj');
+    const liste = document.getElementById('liste');
+    const durumFiltre = document.getElementById('durumFiltre');
+    const ara = document.getElementById('ara');
+    const BOYUT = 10;
+    let sayfa = 1;
+
+    async function sayaclariYukle() {
+      const s = await api('/admin/istatistik');
+      document.getElementById('sayaclar').innerHTML = Object.entries(s)
+        .map(([d, n]) => `<div class="sayac"><b>${n}</b>${DURUM_ETIKET[d]}</div>`).join('');
+    }
+
+    function islemler(b) {
+      const no = kacis(b.takipNo);
+      if (b.durum === 'BEKLEMEDE') return `
+        <button class="mavi" data-no="${no}" data-durum="INCELEMEDE">İncelemeye Al</button>
+        <button class="ikincil" data-no="${no}" data-durum="REDDEDILDI">Reddet</button>`;
+      if (b.durum === 'INCELEMEDE') return `
+        <button class="yesil" data-no="${no}" data-durum="ONAYLANDI">Onayla</button>
+        <button class="ikincil" data-no="${no}" data-durum="REDDEDILDI">Reddet</button>`;
+      if (b.belge) return `<button class="ikincil" data-pdf="${kacis(b.belge.belgeNo)}">PDF</button>`;
+      return '';
+    }
+
+    async function listeYukle() {
+      const q = new URLSearchParams({ sayfa, boyut: BOYUT });
+      if (durumFiltre.value) q.set('durum', durumFiltre.value);
+      if (ara.value.trim()) q.set('ara', ara.value.trim());
+      try {
+        const { toplam, kayitlar } = await api(`/admin/basvurular?${q}`);
+        liste.innerHTML = kayitlar.length
+          ? kayitlar.map((b) => `
+              <tr>
+                <td>${kacis(b.takipNo)}<br><span class="kucuk">${tarihSaat(b.olusturma)}</span></td>
+                <td>${kacis(b.basvuran.ad)} ${kacis(b.basvuran.soyad)}<br><span class="kucuk">${kacis(b.basvuran.tcNo)}</span></td>
+                <td><span class="kucuk">${kacis(b.eskiAdres?.metin || '(ilk kayıt)')}</span><br>→ ${kacis(b.yeniAdres.metin)}
+                    <br><span class="kucuk">Adres kodu ${b.yeniAdres.adresKodu} · Bina kodu ${b.yeniAdres.binaKodu}</span></td>
+                <td>${tarih(b.tasinmaTarihi)}</td>
+                <td>${durumRozeti(b.durum)}${b.redGerekcesi ? `<br><span class="kucuk">${kacis(b.redGerekcesi)}</span>` : ''}</td>
+                <td><div class="satir" style="margin:0">${islemler(b)}</div></td>
+              </tr>`).join('')
+          : '<tr><td colspan="6" class="kucuk">Kayıt yok.</td></tr>';
+
+        const sayfaSayisi = Math.max(1, Math.ceil(toplam / BOYUT));
+        document.getElementById('sayfaBilgi').textContent = `Sayfa ${sayfa} / ${sayfaSayisi} · ${toplam} kayıt`;
+        document.getElementById('onceki').disabled = sayfa <= 1;
+        document.getElementById('sonraki').disabled = sayfa >= sayfaSayisi;
+      } catch (err) { mesajGoster(mesaj, err.message); }
+    }
+
+    function yenile() { sayaclariYukle(); listeYukle(); }
+
+    liste.addEventListener('click', async (e) => {
+      const { no, durum, pdf } = e.target.dataset;
+      if (pdf) return pdfAc(pdf);
+      if (!no) return;
+
+      let aciklama;
+      if (durum === 'REDDEDILDI') {
+        aciklama = prompt('Red gerekçesini yazın:');
+        if (!aciklama) return;
+      } else if (durum === 'ONAYLANDI' && !confirm(`${no} onaylansın mı? Vatandaşın adresi güncellenecek ve belge üretilecek.`)) {
+        return;
+      }
+      try {
+        await api(`/admin/basvurular/${encodeURIComponent(no)}/durum`, { method: 'PATCH', govde: { durum, aciklama } });
+        mesajGoster(mesaj, `${no}: ${DURUM_ETIKET[durum]}`, 'basari');
+        yenile();
+      } catch (err) { mesajGoster(mesaj, err.message); }
+    });
+
+    durumFiltre.onchange = () => { sayfa = 1; listeYukle(); };
+    let araZamanlayici;
+    ara.oninput = () => { clearTimeout(araZamanlayici); araZamanlayici = setTimeout(() => { sayfa = 1; listeYukle(); }, 300); };
+    document.getElementById('onceki').onclick = () => { sayfa--; listeYukle(); };
+    document.getElementById('sonraki').onclick = () => { sayfa++; listeYukle(); };
+
+    yenile();
+  </script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Giriş | İkametgâh Adres Değişikliği</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header><span class="logo">İkametgâh Adres Değişikliği</span><a href="verify.html">Belge Doğrula</a></header>
+
+  <main>
+    <div class="kart dar">
+      <h2 id="baslik">Giriş Yap</h2>
+      <div id="acikOturum" class="mesaj bilgi" hidden></div>
+      <div id="mesaj" class="mesaj"></div>
+
+      <form id="girisForm">
+        <label for="tcNo">T.C. Kimlik No</label>
+        <input id="tcNo" inputmode="numeric" maxlength="11" required autocomplete="username">
+        <label for="sifre">Şifre</label>
+        <input id="sifre" type="password" required autocomplete="current-password">
+        <div class="satir"><button type="submit">Giriş Yap</button></div>
+      </form>
+
+      <form id="kayitForm" hidden>
+        <label for="kTcNo">T.C. Kimlik No</label>
+        <input id="kTcNo" inputmode="numeric" maxlength="11" required>
+        <div class="izgara">
+          <div><label for="kAd">Ad</label><input id="kAd" required></div>
+          <div><label for="kSoyad">Soyad</label><input id="kSoyad" required></div>
+        </div>
+        <label for="kEposta">E-posta (isteğe bağlı)</label>
+        <input id="kEposta" type="email">
+        <label for="kSifre">Şifre (en az 8 karakter)</label>
+        <input id="kSifre" type="password" minlength="8" required autocomplete="new-password">
+        <div class="satir"><button type="submit">Kayıt Ol</button></div>
+      </form>
+
+      <p class="kucuk"><a href="#" id="degistir">Hesabınız yok mu? Kayıt olun</a></p>
+    </div>
+  </main>
+
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    const mesaj = document.getElementById('mesaj');
+    const girisForm = document.getElementById('girisForm');
+    const kayitForm = document.getElementById('kayitForm');
+
+    function yonlendir({ token, kullanici }) {
+      oturum.kaydet(token, kullanici);
+      location.href = kullanici.rol === 'ADMIN' ? 'admin.html' : 'tracking.html';
+    }
+
+    // Açık oturum varsa otomatik yönlendirme yapılmaz; kullanıcı devam etmeyi veya başka hesapla girmeyi seçer.
+    if (oturum.token && oturum.kullanici) {
+      const k = oturum.kullanici;
+      const kutu = document.getElementById('acikOturum');
+      kutu.hidden = false;
+      kutu.classList.add('goster');
+      kutu.innerHTML = `Bu tarayıcıda <b>${kacis(k.ad)} ${kacis(k.soyad)}</b> (${k.rol === 'ADMIN' ? 'yönetici' : 'vatandaş'}) olarak açık bir oturum var.
+        <div class="satir" style="margin-top:8px"><button type="button" id="devamBtn">Devam Et</button>
+        <button type="button" class="ikincil" id="kapatBtn">Oturumu Kapat</button></div>`;
+      document.getElementById('devamBtn').onclick = () => yonlendir({ token: oturum.token, kullanici: k });
+      document.getElementById('kapatBtn').onclick = () => oturum.cikis();
+    }
+
+    document.getElementById('degistir').onclick = (e) => {
+      e.preventDefault();
+      const kayitta = kayitForm.hidden;
+      kayitForm.hidden = !kayitta;
+      girisForm.hidden = kayitta;
+      document.getElementById('baslik').textContent = kayitta ? 'Kayıt Ol' : 'Giriş Yap';
+      e.target.textContent = kayitta ? 'Zaten hesabınız var mı? Giriş yapın' : 'Hesabınız yok mu? Kayıt olun';
+      mesajGizle(mesaj);
+    };
+
+    girisForm.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        yonlendir(await api('/auth/giris', {
+          method: 'POST',
+          govde: { tcNo: tcNo.value.trim(), sifre: sifre.value },
+        }));
+      } catch (err) { mesajGoster(mesaj, err.message); }
+    };
+
+    kayitForm.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        yonlendir(await api('/auth/kayit', {
+          method: 'POST',
+          govde: {
+            tcNo: kTcNo.value.trim(),
+            ad: kAd.value,
+            soyad: kSoyad.value,
+            eposta: kEposta.value || undefined,
+            sifre: kSifre.value,
+          },
+        }));
+      } catch (err) { mesajGoster(mesaj, err.message); }
+    };
+  </script>
+</body>
+</html>

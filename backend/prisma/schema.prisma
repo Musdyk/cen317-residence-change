@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Adres hiyerarşisi (UAVT benzeri) ----------
+
+model Il {
+  id     Int    @id @default(autoincrement())
+  ad     String @unique
+  ilceler Ilce[]
+}
+
+model Ilce {
+  id         Int        @id @default(autoincrement())
+  ad         String
+  ilId       Int
+  il         Il         @relation(fields: [ilId], references: [id])
+  mahalleler Mahalle[]
+
+  @@unique([ilId, ad])
+}
+
+model Mahalle {
+  id       Int     @id @default(autoincrement())
+  ad       String
+  ilceId   Int
+  ilce     Ilce    @relation(fields: [ilceId], references: [id])
+  sokaklar Sokak[]
+
+  @@unique([ilceId, ad])
+}
+
+model Sokak {
+  id        Int     @id @default(autoincrement())
+  ad        String
+  mahalleId Int
+  mahalle   Mahalle @relation(fields: [mahalleId], references: [id])
+  binalar   Bina[]
+
+  @@unique([mahalleId, ad])
+}
+
+model Bina {
+  id       Int             @id @default(autoincrement())
+  binaNo   String
+  binaKodu String          @unique // 8 haneli bina kodu
+  enlem    Float
+  boylam   Float
+  sokakId  Int
+  sokak    Sokak           @relation(fields: [sokakId], references: [id])
+  bolumler BagimsizBolum[]
+
+  @@unique([sokakId, binaNo])
+}
+
+model BagimsizBolum {
+  id        Int    @id @default(autoincrement())
+  daireNo   String
+  adresKodu String @unique // 10 haneli adres kodu
+  binaId    Int
+  bina      Bina   @relation(fields: [binaId], references: [id])
+
+  sakinler          Kullanici[]
+  eskiBasvurular    Basvuru[]   @relation("EskiAdres")
+  yeniBasvurular    Basvuru[]   @relation("YeniAdres")
+
+  @@unique([binaId, daireNo])
+}
+
+// ---------- Kullanıcılar ve başvurular ----------
+
+model Kullanici {
+  id            Int            @id @default(autoincrement())
+  tcNo          String         @unique
+  ad            String
+  soyad         String
+  eposta        String?
+  sifreHash     String
+  rol           String         @default("VATANDAS") // VATANDAS | ADMIN
+  mevcutBolumId Int?
+  mevcutBolum   BagimsizBolum? @relation(fields: [mevcutBolumId], references: [id])
+  olusturma     DateTime       @default(now())
+
+  basvurular        Basvuru[]
+  durumDegisiklikleri BasvuruGecmisi[]
+  belgeler          Belge[]
+}
+
+model Basvuru {
+  id            Int            @id @default(autoincrement())
+  takipNo       String         @unique
+  kullaniciId   Int
+  kullanici     Kullanici      @relation(fields: [kullaniciId], references: [id])
+  eskiBolumId   Int?
+  eskiBolum     BagimsizBolum? @relation("EskiAdres", fields: [eskiBolumId], references: [id])
+  yeniBolumId   Int
+  yeniBolum     BagimsizBolum  @relation("YeniAdres", fields: [yeniBolumId], references: [id])
+  tasinmaTarihi DateTime
+  durum         String         @default("BEKLEMEDE") // BEKLEMEDE | INCELEMEDE | ONAYLANDI | REDDEDILDI | IPTAL
+  redGerekcesi  String?
+  olusturma     DateTime       @default(now())
+  guncelleme    DateTime       @updatedAt
+
+  gecmis BasvuruGecmisi[]
+  belge  Belge?
+
+  @@index([kullaniciId])
+  @@index([durum])
+}
+
+model BasvuruGecmisi {
+  id           Int        @id @default(autoincrement())
+  basvuruId    Int
+  basvuru      Basvuru    @relation(fields: [basvuruId], references: [id])
+  eskiDurum    String?
+  yeniDurum    String
+  degistirenId Int?
+  degistiren   Kullanici? @relation(fields: [degistirenId], references: [id])
+  aciklama     String?
+  tarih        DateTime   @default(now())
+
+  @@index([basvuruId])
+}
+
+model Belge {
+  id            Int       @id @default(autoincrement())
+  belgeNo       String    @unique
+  basvuruId     Int       @unique
+  basvuru       Basvuru   @relation(fields: [basvuruId], references: [id])
+  kullaniciId   Int
+  kullanici     Kullanici @relation(fields: [kullaniciId], references: [id])
+  pdf           Bytes
+  sha256        String
+  gecerli       Boolean   @default(true) // yeni bir adres değişikliğinde eski belge geçersizleşir
+  olusturma     DateTime  @default(now())
+
+  @@index([kullaniciId])
+}

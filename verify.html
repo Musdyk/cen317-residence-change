@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Belge Doğrulama | İkametgâh Adres Değişikliği</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header></header>
+
+  <main>
+    <div class="kart">
+      <h2>Belge Doğrulama</h2>
+      <p class="kucuk">Belgenin üzerindeki belge numarasını girin veya QR kodu okutun.</p>
+      <form id="form" class="satir">
+        <input id="belgeNo" placeholder="YRL-2026-XXXXXXXX" required style="flex:1;min-width:200px;text-transform:uppercase">
+        <button type="submit">Doğrula</button>
+      </form>
+      <div id="mesaj" class="mesaj"></div>
+    </div>
+
+    <div class="kart" id="sonuc" hidden></div>
+  </main>
+
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    // Bu sayfa herkese açık: giriş yapılmışsa menü, yapılmamışsa sade başlık gösterilir.
+    if (oturum.token && oturum.kullanici) sayfaHazirla();
+    else document.querySelector('header').innerHTML =
+      '<span class="logo">İkametgâh Adres Değişikliği</span><a href="login.html">Giriş Yap</a>';
+
+    const mesaj = document.getElementById('mesaj');
+    const sonuc = document.getElementById('sonuc');
+    const belgeNoAlani = document.getElementById('belgeNo');
+    let beklenenHash = null;
+
+    async function dogrula(belgeNo) {
+      mesajGizle(mesaj);
+      sonuc.hidden = true;
+      try {
+        const r = await api(`/dogrula/${encodeURIComponent(belgeNo.trim().toUpperCase())}`);
+        beklenenHash = r.sha256;
+        mesajGoster(mesaj, r.durumMesaji, r.gecerli ? 'basari' : 'hata');
+        sonuc.hidden = false;
+        sonuc.innerHTML = `
+          <table>
+            <tr><th>Belge No</th><td>${kacis(r.belgeNo)}</td></tr>
+            <tr><th>Düzenlenme</th><td>${tarihSaat(r.olusturma)}</td></tr>
+            <tr><th>Ad Soyad</th><td>${kacis(r.kisi.adSoyad)}</td></tr>
+            <tr><th>T.C. Kimlik No</th><td>${kacis(r.kisi.tcNo)}</td></tr>
+            <tr><th>Adres</th><td>${kacis(r.adres.mahalle)} Mah., ${kacis(r.adres.ilce)} / ${kacis(r.adres.il)}</td></tr>
+            <tr><th>Taşınma Tarihi</th><td>${tarih(r.tasinmaTarihi)}</td></tr>
+          </table>
+          <label for="dosya">Elinizdeki PDF'in değiştirilmediğini kontrol edin (isteğe bağlı)</label>
+          <input id="dosya" type="file" accept="application/pdf">
+          <div id="hashSonuc" class="mesaj"></div>`;
+        document.getElementById('dosya').onchange = dosyaKontrol;
+      } catch (err) {
+        mesajGoster(mesaj, err.message);
+      }
+    }
+
+    // Yüklenen PDF'in SHA-256 özeti tarayıcıda hesaplanır, dosya sunucuya gönderilmez.
+    async function dosyaKontrol(e) {
+      const dosya = e.target.files[0];
+      if (!dosya) return;
+      const ozet = await crypto.subtle.digest('SHA-256', await dosya.arrayBuffer());
+      const hex = [...new Uint8Array(ozet)].map((b) => b.toString(16).padStart(2, '0')).join('');
+      const el = document.getElementById('hashSonuc');
+      if (hex === beklenenHash) mesajGoster(el, '✓ Dosya sistemdeki belgeyle birebir aynı.', 'basari');
+      else mesajGoster(el, '✗ Dosya sistemdeki belgeyle uyuşmuyor; değiştirilmiş olabilir.');
+    }
+
+    document.getElementById('form').onsubmit = (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', `?no=${encodeURIComponent(belgeNoAlani.value.trim().toUpperCase())}`);
+      dogrula(belgeNoAlani.value);
+    };
+
+    const no = new URLSearchParams(location.search).get('no');
+    if (no) { belgeNoAlani.value = no; dogrula(no); }
+  </script>
+</body>
+</html>
